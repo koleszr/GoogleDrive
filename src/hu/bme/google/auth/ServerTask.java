@@ -8,21 +8,23 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Enumeration;
 
 /**
  * Created by Zoltán on 2015.04.21..
+ *
+ * Temporary Jetty web server which listens for a Google authorization code.
  */
-public class ServerThread implements Runnable {
+public class ServerTask {
 
     private Server server;
 
     private static volatile String code;
-    private static volatile String token;
-    private static volatile String refreshToken;
 
-    private void createServer() throws Exception {
-
+    /**
+     * Creates a web server on port 8080-
+     * @throws Exception
+     */
+    public void createServer() throws Exception {
         server = new Server(8080);
 
         ServletHandler handler = new ServletHandler();
@@ -30,34 +32,22 @@ public class ServerThread implements Runnable {
 
         handler.addServletWithMapping(AuthenticationServlet.class, "/*");
 
-        // szerver elindítása
         server.start();
         server.join();
     }
 
-
-    @Override
-    public void run() {
-        try {
-            createServer();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+    public void stopServer() throws Exception {
+        server.stop();
     }
 
+    /**
+     * Listen for a request that has a "code" parameter.
+     */
     public static class AuthenticationServlet extends HttpServlet {
         @Override
         protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
             if (req.getParameter("code") != null) {
                 code = req.getParameter("code");
-                //System.out.println(code);
-            }
-
-            Enumeration<String> params = req.getParameterNames();
-
-            while (params.hasMoreElements()) {
-                String key = params.nextElement();
-                System.out.println(key + ": " + req.getParameter(key));
             }
         }
     }

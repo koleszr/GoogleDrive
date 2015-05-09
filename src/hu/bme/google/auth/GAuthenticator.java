@@ -1,7 +1,8 @@
 package hu.bme.google.auth;
 
-import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
+import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
+import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
 import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -10,100 +11,183 @@ import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
 
-import java.io.IOException;
+import java.io.*;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Properties;
 
 /**
  * Created by Zoltán on 2015.04.21..
+ *
+ * Collection of methods to authorize user to Google.
  */
 public class GAuthenticator {
 
-    private static final String CLIENT_ID = "540686391407-s2f23gr815e7pbhi33meg8fsf5em2b6m.apps.googleusercontent.com";
-    private static final String CLIENT_SECRET = "0Qx2tNu-s3QwZZvmeF6caZlt";
+    private static final String TOKENS_LOCATION = "C:/Users/Zoltán/IdeaProjects/GoogleDrive/src/tokens.prop";
+    private static final String CLIENTSECRET_LOCATION = "C:/Users/Zoltán/IdeaProjects/GoogleDrive/src/client_secret.json";
     private static final String REDIRECT_URI = "http://localhost:8080";
+
+    private static String accessToken = null;
+    private static String refreshToken = null;
 
     private static GoogleAuthorizationCodeFlow flow = null;
     private static HttpTransport httpTransport;
     private static JsonFactory jsonFactory;
-    private static Credential credential;
+    private static GoogleCredential googleCredential;
+    private static GoogleClientSecrets clientSecrets;
 
-
-    /**
-     * AccessType: online - web alkalmazások esetén, offline - telepített alkalmazások esetén
-     * ApprovalPrompt: auto - web alkalmazások esetén, force - telepített alkalmazások esetén
-     *      auto: automatikus jóváhagyás kérése
-     *      force: jóváhagyási UI mutatása mindenképp
-     *
-     *  @return: URL a Google autentikációs felület eléréséhez
-     */
-    public static String getAuthenticationURL() {
-
+    static {
         httpTransport = new NetHttpTransport();
         jsonFactory = new JacksonFactory();
 
-        flow = new GoogleAuthorizationCodeFlow.Builder(
-                httpTransport, jsonFactory, CLIENT_ID, CLIENT_SECRET, Arrays.asList(DriveScopes.DRIVE))
-                .setAccessType("offline").setApprovalPrompt("force").build();
+        InputStreamReader in = null;
+        try {
+            in = new InputStreamReader(new FileInputStream(CLIENTSECRET_LOCATION));
+            clientSecrets = GoogleClientSecrets.load(jsonFactory, in);
+            flow = new GoogleAuthorizationCodeFlow.Builder(
+                    httpTransport, jsonFactory, clientSecrets, Collections.singletonList(DriveScopes.DRIVE))
+                    .setAccessType("offline").setApprovalPrompt("force").build();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (in != null) {
+                try {
+                    in.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
 
+
+    /**
+     * AccessType: online - web applications, offline - installed applications
+     * ApprovalPrompt: auto - web applications, force - installed applications
+     *      auto: request auto-approval
+     *      force: force the approval UI to show
+     *
+     *  @return URL to the Google authentication UI
+     */
+    public static String getAuthenticationURL() {
         return flow.newAuthorizationUrl().setRedirectUri(REDIRECT_URI).build();
     }
 
 
     /**
-     * JSON formátumú objektumot ad vissza, egy authorizációs kódért cserébe,
-     * ami tokeneket - accessToken, refreshToken - tartalmaz.
-     *      access token - google API elérése
-     *      refresh token - access token frissítése, ha lejár az érvényessége
      *
-     *  @param: code - a böngésző által visszaadott query paraméter
-     *  @return: GoogleTokenResponse objektum
+     * Returns a Json object for an authorization code, which contains tokens e.g.
+     * access and refresh tokens.
+     *      access token - access Google API
+     *      refresh token - refreshes access token if it expires
+     *
+     *  @param code returned query parameter by the Google authentication server
+     *  @return GoogleTokenResponse object
      */
     public static GoogleTokenResponse getTokens(String code) throws IOException {
-
         return flow.newTokenRequest(code).setRedirectUri(REDIRECT_URI).execute();
     }
 
-    /**
-     * credential mező beállítása
-     *
-     *  @param: GoogleCredential objektum
-     *  @return: GoogleCredential objektum
-     */
-    public static void setCredential(Credential credential) {
-
-        GAuthenticator.credential = credential;
-    }
 
     /**
-     * GoogleCredentials objektum készítése és tárolása.
+     * Make a GoogleCredential object from GoogleTokenResponse object
      *
-     * @param: GoogleTokenResponse objektum
-     * @return: OAuth 2.0 credentials
-     * @throws: IOException
+     * @param tokenResponse object
      */
-    public static Credential storeCredential(GoogleTokenResponse tokenResponse) throws IOException {
-        return flow.createAndStoreCredential(tokenResponse, null);
+    public static void makeGoogleCredential(GoogleTokenResponse tokenResponse) {
+        googleCredential = new GoogleCredential.Builder().setJsonFactory(jsonFactory).setTransport(httpTransport).setClientSecrets(clientSecrets).build().setFromTokenResponse(tokenResponse);
     }
 
     /**
-     * Kapcsolat létrehozása a Drive-hoz.
-     *
-     * @return: Drive objektum a felhasználó tárhelyének eléréséhez
+     * Getter for googleCredential object
      */
-    public static Drive connectToGoogleDrive() {
-
-        return new Drive.Builder(httpTransport, jsonFactory, credential).build();
+    public static GoogleCredential getGoogleCredential() {
+        return googleCredential;
     }
 
-    public static String getClientId() {
-        return CLIENT_ID;
+    /**
+     * Get a GoogleCredential object from restored tokens.
+     */
+    public static void restoreGoogleCredential() {
+        googleCredential = new GoogleCredential.Builder().setClientSecrets(clientSecrets)
+                .setJsonFactory(jsonFactory).setTransport(httpTransport).build()
+                .setRefreshToken(refreshToken).setAccessToken(accessToken);
     }
 
-    public static String getClientSecret() {
-        return CLIENT_SECRET;
+    /**
+     * Store Credential object persistently.
+     *
+     */
+    public static void storeCredentials() {
+        Properties googleTokens = new Properties();
+
+        googleTokens.put("access_token", googleCredential.getAccessToken());
+        googleTokens.put("refresh_token", googleCredential.getRefreshToken());
+
+        FileWriter writer = null;
+
+        try {
+            writer = new FileWriter(TOKENS_LOCATION);
+            googleTokens.store(writer, null);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (writer != null) {
+                try {
+                    writer.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
-    public static String getRedirectUri() {
-        return REDIRECT_URI;
+
+    /**
+     * Retrieve tokens from persistent storage.
+     *
+     */
+    public static void restoreCredentials() {
+        Properties googleTokens = new Properties();
+
+        FileReader reader = null;
+
+        try {
+            reader = new FileReader(TOKENS_LOCATION);
+
+            googleTokens.load(reader);
+
+            accessToken = googleTokens.getProperty("access_token");
+            refreshToken = googleTokens.getProperty("refresh_token");
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (reader != null) {
+                try {
+
+                    reader.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public static String getRefreshToken() {
+        return refreshToken;
+    }
+
+    /**
+     * Makes a connection to Google Drive.
+     *
+     * @return Drive object to access user's Drive.
+     */
+    public static Drive makeDrive() {
+        return new Drive.Builder(httpTransport, jsonFactory, googleCredential).setApplicationName("MarkITDown").build();
     }
 }
