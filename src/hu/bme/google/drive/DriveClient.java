@@ -23,6 +23,7 @@ public class DriveClient {
         this.drive = drive;
     }
 
+
     /**
      * Get the list of text files from user's Google Drive.
      */
@@ -33,6 +34,7 @@ public class DriveClient {
                 .collect(Collectors.toList());
     }
 
+
     /**
      * @return list of the files stored on Google Drive
      */
@@ -40,13 +42,6 @@ public class DriveClient {
         return driveFiles;
     }
 
-    /**
-     * Opens the given Google Drive file.
-     * @param file Drive file object
-     */
-    public void openFileFromDrive(File file) {
-
-    }
 
     /**
      * Upload file to Drive.
@@ -58,4 +53,38 @@ public class DriveClient {
 
         drive.files().insert(file, mediaContent).execute();
     }
+
+
+    /**
+     * Upload file to Drive. If the file is already present on the user's Drive storage,
+     * it will be updated with the new content of the file.
+     */
+    public void uploadFileToDrive(java.io.File fileContent) throws IOException {
+        File file = new File();
+        file.setTitle(fileContent.getName());
+
+        FileContent mediaContent = new FileContent(file.getMimeType(), fileContent);
+
+        if (!isUnique(file)) {
+            drive.files().insert(file, mediaContent).execute();
+        } else {
+            List<File> files = driveFiles.stream().filter(driveFile -> driveFile.getTitle().equals(file.getTitle())).collect(Collectors.toList());
+            if (files.size() >= 1) {
+                drive.files().update(files.get(0).getId(), file, mediaContent).execute();
+                System.out.println("valami");
+            }
+        }
+    }
+
+
+    /**
+     * Checks if the file is unique on user's Drive storage.
+     * @param file
+     * @return true if the file is unique
+     */
+    private boolean isUnique(File file) {
+        List<String> fileNames = driveFiles.stream().map(File::getTitle).collect(Collectors.toList());
+        return fileNames.contains(file.getTitle());
+    }
+
 }
